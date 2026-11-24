@@ -97,7 +97,7 @@ class VerificationTests(unittest.IsolatedAsyncioTestCase):
         responses = [response("read_source", {"path": "ui.js", "start_line": 1, "count": 3}),
                      response("finish_investigation", {"status": "diagnosed", "summary": "bug",
                               "citations": [{"path": "ui.js", "line": 2}], "baseline_case": "example"}),
-                     *(response("propose_patch", {"diff": DIFF}) for _ in attempts)]
+                     *(response("propose_patch", {"diff": attempt["diff"]}) for attempt in attempts)]
         client = Mock()
         client.responses.create = AsyncMock(side_effect=responses)
         with (patch("investigator.graph.run_baseline", return_value={**self.baseline, "outcome": baseline_outcome}),
@@ -107,14 +107,27 @@ class VerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run_suite.call_count, int(baseline_outcome == "reproduced"))
         return result, client.responses.create.await_args_list
 
-    async def test_one_revision_includes_actual_assertion(self):
-        failed = {"outcome": "failed", "detail": "control actual != expected", "diff": DIFF}
-        for last in ["verified", "failed"]:
-            result, requests = await self.run_graph([failed, {**failed, "outcome": last}])
-            self.assertEqual(result["verification"]["outcome"], last)
+    async def test_two_revisions_use_latest_evidence_and_stop_after_three_candidates(self):
+        first = {"outcome": "failed", "detail": "selected test failed", "diff": DIFF}
+        second = {"outcome": "failed", "detail": "control regressed", "diff": DIFF.replace("+fix", "+revision")}
+        for outcome in ("verified", "failed"):
+            attempts = [first, second, {**second, "outcome": outcome}]
+            result, requests = await self.run_graph(attempts)
+            self.assertEqual(result["verification"]["outcome"], outcome)
+            self.assertEqual(result["verification"]["attempts"], attempts)
+            self.assertEqual(len(requests), 5)
+            for call, previous in zip(requests[-2:], (first, second)):
+                prompt = json.loads(call.kwargs["input"])
+                self.assertEqual(prompt["failed_assertions"], previous["detail"])
+                self.assertEqual(prompt["previous_diff"], previous["diff"])
+
+    async def test_first_revision_can_finish_early(self):
+        first = {"outcome": "failed", "detail": "wrong value", "diff": DIFF}
+        for outcome in ("verified", "inconclusive"):
+            attempts = [first, {**first, "outcome": outcome}]
+            result, requests = await self.run_graph(attempts)
+            self.assertEqual(result["verification"]["attempts"], attempts)
             self.assertEqual(len(requests), 4)
-            self.assertEqual(len(result["verification"]["attempts"]), 2)
-            self.assertEqual(json.loads(requests[-1].kwargs["input"])["failed_assertions"], failed["detail"])
 
     async def test_no_revision_on_infrastructure_error(self):
         result, requests = await self.run_graph([{"outcome": "inconclusive", "detail": "runner unavailable", "diff": DIFF}])

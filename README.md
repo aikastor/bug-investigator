@@ -51,7 +51,7 @@ flowchart LR
   T -->|diagnosis with a matching test| V[Replay baseline in Docker]
   V -->|reproduced| P[Ask GPT for a source diff]
   P --> C[Build and test a disposable candidate]
-  C -->|first behavioral failure| P
+  C -->|behavioral failure and fewer than three attempts| P
   C -->|verified| H[Human review in Streamlit]
   H -->|approve| G[Open GitHub pull request]
   H -->|reject| R[Save decision]
@@ -78,7 +78,7 @@ A reproduced baseline on a target with `patch_sources` and a `suite_command` sta
 
 The selected test runs on the candidate with the baseline command, app URL and browser-runner image ID. A fresh app instance also runs the same full suite on each side. The target’s reporter emits one `TEST_RESULT` JSON record per test, a final `TEST_PLAN` count, and `BASELINE_RESULT` observations from the booking tests. Assertions count as behavioral failures. Browser startup errors, timeouts, source mismatches and incomplete suite results are inconclusive.
 
-Verification requires the selected test to pass in both candidate runs and every previously passing suite test to keep passing. A behavioral failure sends the diff and actual assertions back to GPT for one revision against the original source. The worker removes temporary images, containers and networks after use.
+Verification requires the selected test to pass in both candidate runs and every previously passing suite test to keep passing. After a behavioral failure, GPT receives the latest diff and failed assertions and can revise the patch against the original source. Each investigation allows an initial proposal and up to two revisions. Verification stops immediately on success or an inconclusive run. The worker removes temporary images, containers and networks after use.
 
 Open the investigation to compare observations, suite results and proposed diffs. The JSON representation includes the original replay in `result.baseline`, the suite in `result.verification.baseline_suite` and candidate runs in `result.verification.attempts`. Historical records retain their original fields.
 

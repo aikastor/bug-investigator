@@ -2,6 +2,10 @@
 
 Try booking two seats in the React demo and watch Bug Investigator diagnose the checkout error. It finds the relevant source lines, proposes a fix, and tests it in Docker. You review the diff in Streamlit before the app applies it locally or opens a pull request.
 
+> **[View the recorded A1 + A2 investigation in LangSmith][checkout-trace]**
+>
+> This private trace follows a real checkout failure from source search to the first verified patch. Viewing it requires access to the `bug-investigator` project in LangSmith.
+
 ## Run the demo
 
 ### Quick start
@@ -99,6 +103,12 @@ flowchart LR
 
 ## LangSmith tracing and token usage
 
+### Recorded demo run
+
+The **[A1 + A2 checkout trace][checkout-trace]** shows four model responses for diagnosis and one for the patch proposal. All five responses together used **10,318 tokens** (9,800 input and 518 output). Expand `patch_attempt` to see how long the proposal and verification took.
+
+### Trace your own runs
+
 To enable tracing, add these settings to the investigator's private `.env` or worker environment. Environment values take precedence. To leave tracing off, omit `LANGSMITH_TRACING` or set it to `false`.
 
 ```dotenv
@@ -109,9 +119,9 @@ LANGSMITH_API_KEY=your-private-langsmith-key
 
 Click **Open LangSmith trace** in Streamlit to see the incident ID, executed steps, tool durations, and patch attempts. Expand a revised attempt to see which check failed under `revision_after`. Exported telemetry contains operational fields only. Prompts, source code, diffs, credentials, and review tokens stay out of the trace.
 
-In the recorded A1 + A2 investigation, five model responses used **9,800 input + 518 output = 10,318 total tokens**. Workspace members can open the [private LangSmith trace](https://smith.langchain.com/o/0784eb7b-f63d-41bc-8d8e-ccc029586b94/projects/p/cedc885d-b831-45ea-8152-4942cf96dbbc/r/49775a54-3e69-4c30-aea2-26849e623764?poll=true).
-
 Token accounting also works with tracing off. The JSON report lists each response in `usage.calls`. A missing provider count appears as **unknown** in Streamlit and `null` in JSON. Failed investigations retain usage already received. If LangSmith is unavailable, the investigation continues.
+
+[checkout-trace]: https://smith.langchain.com/o/0784eb7b-f63d-41bc-8d8e-ccc029586b94/projects/p/cedc885d-b831-45ea-8152-4942cf96dbbc/r/49775a54-3e69-4c30-aea2-26849e623764?poll=true
 
 ## Developer reference
 

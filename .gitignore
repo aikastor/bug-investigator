@@ -4,3 +4,5 @@ __pycache__/
 node_modules/
 .env
 .env.*
+/docs/handoff-patch-verification.md
+/docs/booking-demo.mp4

@@ -61,6 +61,10 @@ def advance(db, graph, incident_id, decision=None, token=None, *, publishable=Fa
                 state = graph.get_state(config).values
         review = {**state, "status": state.get("decision", "pending")}
         result["review"] = review
+        local = result.get("local_patch", {})
+        if decision == "approved" and local.get("status") in (None, "failed"):
+            local.pop("error", None)
+            result["local_patch"] = {**local, "status": "queued"}
         db.execute("UPDATE investigations SET result=? WHERE incident_id=?", (json.dumps(result), incident_id))
         if review["status"] == "approved" and publishable:
             db.execute("INSERT OR IGNORE INTO publications(incident_id) VALUES (?)", (incident_id,))

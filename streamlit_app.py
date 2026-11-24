@@ -83,6 +83,7 @@ def report():
     publication = data.get("publication") or {}
     if review.get("status") == "pending":
         repo = data.get("github_target")
+        st.write("Approval applies the verified diff to the target’s local source checkout.")
         if repo:
             st.write(f"Approval opens a pull request in **{repo['repo']}** against `{repo['base']}`.")
         approve, reject = st.columns(2)
@@ -97,6 +98,18 @@ def report():
             st.rerun()
     elif review.get("decision"):
         st.write(f"Review {review['decision']} · {review['decided_at']}")
+    if review.get("decision") == "approved":
+        local = result.get("local_patch") or {}
+        if local.get("status") == "applied":
+            st.write("Applied locally · " + ", ".join(local["files"]))
+        elif local.get("status") == "queued":
+            st.info("Local change queued")
+        else:
+            if local.get("error"):
+                st.error(local["error"])
+            if st.button("Apply approved fix locally", key=f"local-{key}"):
+                api(f"{path}/review/{review['token']}/approved", method="POST")
+                st.rerun()
     if publication.get("url"):
         st.link_button("Open GitHub pull request", publication["url"])
     elif publication.get("status") == "failed":

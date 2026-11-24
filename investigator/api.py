@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
-from . import jobs, publication, reports, review
+from . import jobs, local_patch, publication, reports, review
 from .models import Incident, Target
 from .watcher import collect
 
@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(watch(name, target, db, app.state.targets)))
     tasks.append(asyncio.create_task(jobs.work(db, targets, config.parent / ".env", app.state.review_graph)))
     tasks.append(asyncio.create_task(publication.worker(db, targets)))
+    tasks.append(asyncio.create_task(local_patch.worker(db, targets)))
     try:
         yield
     finally:
@@ -118,6 +119,7 @@ async def investigation(incident_id: str, request: Request, response: Response):
                               calls=calls, error=error, baseline=result.get("baseline") if result else None,
                               verification=result.get("verification") if result else None,
                               review=result.get("review") if result else None, publication=publication_info,
+                              local_patch=result.get("local_patch") if result else None,
                               review_ui=os.getenv("INVESTIGATOR_REVIEW_UI", "http://127.0.0.1:8514"))
     return {"incident_id": incident_id, "status": status, "source_fingerprint": fingerprint,
             "tool_calls": calls, "result": result,

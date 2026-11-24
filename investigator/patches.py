@@ -9,28 +9,37 @@ from uuid import uuid4
 from .baseline import cleanup, diagnostic, docker, run_tests
 
 
-def apply_diff(root, diff, sources):
+def diff_files(diff, sources):
     # Only ordinary text hunks editing existing configured files. Exclude Git
     # extensions such as renames, mode changes, and binary patches.
     lines = diff.splitlines()
-    paths = set()
+    sections = {}
     i = 0
     while i < len(lines):
         if not lines[i].startswith("--- a/"):
             raise ValueError("Expected a unified diff starting with --- a/path.")
+        start = i
         path = lines[i][6:]
-        if path not in sources or lines[i + 1:i + 2] != ["+++ b/" + path]:
+        if (path not in sources or Path(path).is_absolute() or any(p.startswith(".") for p in Path(path).parts)
+                or lines[i + 1:i + 2] != ["+++ b/" + path]):
             raise ValueError("The diff must edit an existing configured application source file.")
-        paths.add(path)
         i += 2
         if i == len(lines) or not lines[i].startswith("@@ "):
             raise ValueError("Missing unified diff hunk.")
         while i < len(lines) and not lines[i].startswith("--- a/"):
+            if lines[i].startswith(("--- ", "+++ ")):
+                raise ValueError("Unexpected file header inside a patch hunk.")
             if not lines[i].startswith((" ", "+", "-", "@@ ", "\\ No newline at end of file")):
                 raise ValueError("Unexpected unified diff metadata.")
             i += 1
-    if not paths:
+        sections[path] = sections.get(path, "") + "\n".join(lines[start:i]) + "\n"
+    if not sections:
         raise ValueError("Empty patch.")
+    return sections
+
+
+def apply_diff(root, diff, sources):
+    paths = diff_files(diff, sources)
     proc = subprocess.run(["git", "apply", "--no-index", "--recount", "--whitespace=nowarn", "-"],
                           input=diff.rstrip("\n") + "\n", text=True, capture_output=True,
                           cwd=root, timeout=8)
@@ -80,6 +89,10 @@ def verify_candidate(target, repo, diff, baseline, before):
                         or hashlib.sha256(dest.read_bytes()).hexdigest() != repo.file_hashes[source]):
                     raise ValueError("Baseline image differs from diagnosis snapshot: " + source)
             changed = apply_diff(root, diff, config.patch_sources)
+            result["file_hashes"] = {
+                p: {"before": repo.file_hashes[p], "after": hashlib.sha256((root / p).read_bytes()).hexdigest()}
+                for p in changed
+            }
             if not any(hashlib.sha256((root / p).read_bytes()).hexdigest() != repo.file_hashes[p] for p in changed):
                 raise ValueError("Proposed diff did not change the source.")
             for source in changed:

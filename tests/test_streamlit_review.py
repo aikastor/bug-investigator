@@ -20,6 +20,8 @@ class StreamlitReviewTests(unittest.TestCase):
                     if request.method == "POST":
                         posts.append(request.full_url.split("/investigations/")[1])
                         result["review"].update(status=choice, decision=choice, decided_at="2026-11-24")
+                        if choice == "approved":
+                            result["local_patch"] = {"status": "queued"}
                         payload = result["review"]
                     elif request.full_url.endswith("/investigations"):
                         payload = [{"incident_id": "incident", "status": "diagnosed", "message": "Checkout fee"}]

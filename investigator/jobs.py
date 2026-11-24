@@ -81,7 +81,7 @@ async def work(db: sqlite3.Connection, targets: dict[str, Target], env_file: Pat
         try:
             row = db.execute("SELECT record FROM incidents WHERE id=?", (incident_id,)).fetchone()
             incident = Incident.model_validate_json(row[0])
-            repo = await asyncio.to_thread(Repository.load, targets[incident.target].local_source_root)
+            repo = await asyncio.to_thread(Repository.load_target, targets[incident.target])
             with db:
                 db.execute("UPDATE investigations SET fingerprint=? WHERE incident_id=? AND owner=?",
                            (repo.fingerprint, incident_id, owner))

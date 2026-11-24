@@ -89,4 +89,6 @@ In Streamlit, select a verified investigation and inspect its diff and browser s
 
 The publisher checks the GitHub base against the source fingerprint, applies the reviewed diff to a temporary clone, and opens a pull request with both checkout observations and the suite comparison. It uses a branch derived from the investigation and diff hash so retries can recover an existing branch or PR. A failed publication displays the error and a retry button. Merging is a separate GitHub action.
 
-The review decision and publication status are available through the existing report JSON. Run the API on loopback for this single-user demo.
+Approval also applies the exact verified changes as unstaged edits in the configured local checkout. The worker checks each affected file against the tested before and after hashes and preserves unrelated edits. A conflict appears in the report and can be retried from Streamlit. Previously approved reports offer **Apply approved fix locally**. The running demo continues serving its existing image. New investigations read the deployed application source even after the checkout has been fixed.
+
+The JSON report exposes the local outcome in `result.local_patch` alongside the review decision and independent PR publication status. Run the API on loopback for this single-user demo.

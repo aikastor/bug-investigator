@@ -2,8 +2,12 @@
 
 import hashlib
 import os
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from .baseline import docker
 
 SOURCE_TYPES = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".py", ".go", ".rs",
                 ".java", ".kt", ".cs", ".rb", ".php", ".html", ".css", ".sql", ".vue", ".svelte"}
@@ -17,7 +21,29 @@ class Repository:
     file_hashes: dict[str, str]
 
     @classmethod
-    def load(cls, root: Path):
+    def load_target(cls, target):
+        sources = target.baseline.patch_sources if target.baseline else []
+        deployed = {}
+        if sources:
+            # The demo can keep running an older image after an approved fix
+            # lands locally. Diagnose the files served by that deployment.
+            try:
+                cid = docker("container", "inspect", "--format", "{{.Id}}", target.container).stdout.strip()
+                with TemporaryDirectory() as tmp:
+                    for i, source in enumerate(sources):
+                        dest = Path(tmp) / str(i)
+                        docker("cp", f"{cid}:{target.container_source_root}/{source}", str(dest))
+                        if dest.is_symlink() or not dest.is_file() or dest.stat().st_size > 256_000:
+                            raise ValueError(f"Unavailable deployed source file: {source}")
+                        deployed[source] = dest.read_bytes()
+            except (ValueError, OSError, subprocess.SubprocessError):
+                # Preserve source-only diagnosis when Docker is unavailable.
+                # Candidate verification independently checks the image hashes.
+                deployed.clear()
+        return cls.load(target.local_source_root, deployed)
+
+    @classmethod
+    def load(cls, root: Path, deployed=None):
         if not root.is_dir():
             raise ValueError("The configured source checkout is missing.")
         files = {}
@@ -32,11 +58,11 @@ class Repository:
                     continue
                 if not path.is_file() or path.stat().st_size > 256_000:
                     continue
-                data = path.read_bytes()
+                relative = path.relative_to(root).as_posix()
+                data = deployed[relative] if deployed and relative in deployed else path.read_bytes()
                 size += len(data)
                 if size > 16_000_000 or len(files) >= 4000:
                     raise ValueError("Checkout exceeds the local source snapshot limit.")
-                relative = path.relative_to(root).as_posix()
                 files[relative] = data.decode("utf-8", errors="replace").splitlines()
                 file_hashes[relative] = hashlib.sha256(data).hexdigest()
                 digest.update(relative.encode() + b"\0" + hashlib.sha256(data).digest())

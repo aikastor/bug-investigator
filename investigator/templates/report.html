@@ -41,6 +41,9 @@
 {% if review.status == "pending" %}
 <p><a href="{{ review_ui }}?investigation={{ incident.id|urlencode }}">Review this patch in Streamlit</a></p>
 {% else %}<p>Decision recorded {{ review.decided_at }}.</p>{% endif %}
+{% if local_patch %}<p>Local checkout · {{ local_patch.status }}
+{% if local_patch.files %} · {{ local_patch.files|join(', ') }}{% endif %}</p>
+{% if local_patch.error %}<pre>{{ local_patch.error }}</pre>{% endif %}{% endif %}
 {% if publication %}
 {% if publication.url %}<p><a href="{{ publication.url }}">Open GitHub pull request</a></p>
 {% elif publication.status == "failed" %}<pre>{{ publication.error }}</pre>

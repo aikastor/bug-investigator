@@ -1,30 +1,47 @@
-# Bug investigator
+# Bug Investigator
 
-The FastAPI collector watches Docker containers listed in [targets.toml](targets.toml). It stores browser errors and unsuccessful exits in SQLite and maps stack frames to the configured source checkout. The included target is the sibling [seat-booking app](https://github.com/aikastor/faulty-app).
-
-The baseline rejects A1 and A2 at $28 with HTTP 409. The candidate confirms the same seats at $26 with HTTP 200 and confirms A1 at $14. The full suite improves from three passes to four out of six. C4 and D2 retain their independent failures. The human review in Streamlit opened [faulty-app PR #1](https://github.com/aikastor/faulty-app/pull/1) with the verified one-line fix.
+Try booking two seats in the React demo and watch Bug Investigator diagnose the checkout error. It finds the relevant source lines, proposes a fix, and tests it in Docker. You review the diff in Streamlit before the app applies it locally or opens a pull request.
 
 ## Run the demo
 
-Install Git, Python 3.14 and Docker with Compose, then start Docker.
-
-For automatic diagnosis, put `OPENAI_API_KEY=your-key` in a private `.env` beside `targets.toml`, or export the key before launch. You can add the key to the file while the app is running. For private traces, see [LangSmith tracing and token usage](#langsmith-tracing-and-token-usage). Publishing an approved PR also requires the GitHub CLI.
-
 ### Quick start
 
-```sh
-git clone https://github.com/aikastor/bug-investigator.git
-cd bug-investigator
-python3.14 demo.py
-```
+You'll need **Git**, **Python 3.14**, and **Docker with Compose**. Start Docker first. An **OpenAI API key** is the only credential you need for automatic diagnosis. LangSmith tracing and GitHub publication are optional.
 
-If you already have the investigator checkout, run just `python3.14 demo.py` from its directory. The launcher prepares a local Python environment, clones the sibling `faulty-app` repository if needed, starts the seat-booking container and builds the browser-test image on first use. It reuses the existing demo container on subsequent launches.
+1. Clone the investigator and enter its directory.
 
-Press Ctrl+C in the launcher terminal to stop the API and Streamlit. To choose different local ports, set `INVESTIGATOR_API_PORT` and `INVESTIGATOR_UI_PORT` before starting the launcher.
+   ```sh
+   git clone https://github.com/aikastor/bug-investigator.git
+   cd bug-investigator
+   ```
+
+2. Create a private `.env` file in that directory and add your key. You can also supply it through the environment. The worker uses `gpt-6.1-sol`.
+
+   ```dotenv
+   OPENAI_API_KEY=your-key
+   ```
+
+3. Start the demo.
+
+   ```sh
+   python3.14 demo.py
+   ```
+
+The launcher prepares Python, clones the [seat-booking app](https://github.com/aikastor/faulty-app) beside the investigator, and builds the browser-test image if needed. For later runs, repeat step 3. Ctrl+C stops the API and Streamlit. The Docker demo stays available.
+
+### Try the demo
+
+1. Open the [Streamlit review app](http://127.0.0.1:8514) and click **Open seat-booking app**.
+2. On the [React seat map](http://127.0.0.1:4173), select **A1** and **A2**, then click **Reserve seats**. The faulty app charges $28 and rejects checkout because the correct total is $26.
+3. Return to Streamlit, click **Refresh investigations**, and select the new incident. Follow the diagnosis, then inspect the proposed diff and test results. You can leave the patch pending while you review it.
+
+If an incident stays **queued**, check `OPENAI_API_KEY`. You can add it to the private `.env` while the app is running.
 
 ### Manual setup
 
-On a fresh checkout, clone the repositories side by side and prepare the demo and browser-test images. If the faulty demo container is already running, skip the `docker compose up` line to keep its deployed image.
+Use this option to run the API and Streamlit in separate terminals. Use the same prerequisites and private `bug-investigator/.env` as in the quick start.
+
+**Terminal 1.** On a fresh setup, clone both repositories side by side. Start the demo container and build the image that runs the browser tests. If the faulty container is already running, skip the `docker compose up` line to keep its deployed image.
 
 ```sh
 git clone https://github.com/aikastor/faulty-app.git
@@ -35,7 +52,7 @@ docker compose --profile tests build browser-tests
 cd ../bug-investigator
 ```
 
-In the first terminal, create the Python environment, install dependencies and start the API.
+Prepare the Python environment and start the API.
 
 ```sh
 python3.14 -m venv .venv
@@ -43,56 +60,46 @@ python3.14 -m venv .venv
 .venv/bin/python -m uvicorn investigator.api:app --host 127.0.0.1 --port 8174
 ```
 
-In a second terminal, open the same `bug-investigator` directory and start Streamlit.
+**Terminal 2.** From the same `bug-investigator` directory, start Streamlit.
 
 ```sh
 .venv/bin/python -m streamlit run streamlit_app.py --server.address 127.0.0.1 --server.port 8514
 ```
 
-For later launches, run just the Uvicorn and Streamlit commands while the demo container is running. Press Ctrl+C in each terminal to stop its service. If you change the addresses, set `INVESTIGATOR_API` for Streamlit and `INVESTIGATOR_REVIEW_UI` for the API.
+On later runs, start only Uvicorn and Streamlit if the demo container is running. Press Ctrl+C in each terminal to stop its service.
 
-### Try the demo
+## Review and submit a fix
 
-In the [Streamlit review app](http://127.0.0.1:8514), click **Open seat-booking app**. On the [React seat map](http://127.0.0.1:4173), select **A1** and **A2**, then click **Reserve seats**. After the checkout error, return to Streamlit and click **Refresh investigations** to see the new incident.
+Streamlit shows the original checkout, the candidate checkout, the diff, and the full test comparison. A verified patch waits for your decision, even after a restart.
 
-Open the [API explorer](http://127.0.0.1:8174/docs). `GET /targets` shows collector status and `GET /incidents` returns the latest 100 records. The watcher polls every two seconds and scans up to 250 retained log lines from the current run. Keep exited containers until collection. Set `INVESTIGATOR_CONFIG` and `INVESTIGATOR_DB` to override the default paths. Run checks with `.venv/bin/python -m unittest discover -s tests`.
+- **Reject patch** records your decision and ends the review.
+- **Approve and open pull request** queues two actions. The app applies the verified diff as unstaged edits in the local checkout and opens a PR in the configured GitHub repository. You decide separately whether to merge it on GitHub.
+
+**Trying this with your own GitHub account?** Fork `faulty-app`, set `repo = "YOUR-USERNAME/faulty-app"` under `[targets.lantern.github]`, and sign in with `gh auth login` before starting the investigator. The publisher pushes a branch and opens the PR in that same repository, so your account needs push access there. To propose the change upstream, open a separate PR from your fork. [Target configuration](targets.toml)
+
+The report tracks local changes and PR publication separately. If either action fails, Streamlit shows the error and offers a retry. The running demo keeps using its existing image after a local fix.
 
 ## Automatic LangGraph investigations
 
-Each **newly collected** Docker incident is saved and queued in one SQLite transaction. The incident ID is the unique job ID. Old records already in the database are retained as history. Run the app and the collector with the same source version.
-
-The worker checks for an OpenAI key on each poll. Jobs stay queued while no key is configured. Once a key is present, new incidents automatically send their trace and model-selected source excerpts to OpenAI using `gpt-6.1-sol`.
-
 ```mermaid
 flowchart LR
-  D[Docker incident] --> Q[SQLite queue]
-  Q --> S[Snapshot local source]
-  S --> A[Ask GPT-6.1]
-  A --> T[Execute chosen tool]
-  T -->|search or read result| A
-  T -->|diagnosis with a matching test| V[Replay baseline in Docker]
-  V -->|reproduced| P[Ask GPT for a source diff]
-  P --> C[Build and test a disposable candidate]
-  C -->|behavioral failure and fewer than three attempts| P
-  C -->|verified| H[Human review in Streamlit]
-  H -->|approve| G[Open GitHub pull request]
-  H -->|reject| R[Save decision]
-  C -->|failed or inconclusive| R
-  V -->|passed or inconclusive| R
-  T -->|no matching test or insufficient evidence| R
+  A[Docker incident] --> B[Search and read source]
+  B --> C[Replay failing test]
+  C -->|Bug reproduced| D[Propose patch]
+  D --> E[Test candidate]
+  E -->|Failed check, up to two revisions| D
+  E -->|Verified| F[Human review]
 ```
 
-To try it, open the seat map, select A1 and A2, and reserve them. Open [investigations](http://127.0.0.1:8174/investigations) and select an incident to read its diagnosis and cited source lines. Expand the stack trace or tool calls for details. Use **View raw JSON** for the API representation. A supported diagnosis cites lines returned by `read_source`. The graph allows up to seven source-tool calls and one final response. It can finish early or report insufficient evidence. Provider failures are recorded on the job.
+**Diagnosis.** The collector saves browser errors and unsuccessful container exits in SQLite. For each new incident, the worker sends the error and selected source excerpts to OpenAI. A diagnosis cites lines the agent actually read. If the evidence is insufficient, the report says so.
 
-The worker claims one job at a time. Shutdown requeues active work. An expired lease lets a worker recover after a process crash. Recovery reruns the graph under the same investigation ID and may repeat a model request.
+**Verification.** The worker replays a configured test against a private copy of the running app's Docker image. If it reproduces the bug, the worker tests each proposed diff against the original source. To pass, the candidate must fix the selected case and preserve every previously passing test. A failed check can trigger up to two revisions. An inconclusive run stops verification.
 
-The source tools read a local in-memory snapshot of common code file types. They skip dependencies, hidden paths, symlinks and large files. The fingerprint identifies the snapshot used for a run. The configured GitHub repository supplies the publication base after approval.
+**Example result.** In the seat-booking demo, the verified fix changed A1 + A2 from $28 and HTTP 409 to $26 and HTTP 200. A1 alone still cost $14. The browser suite improved from three to four passes out of six, with C4 and D2 still failing independently. [Example pull request](https://github.com/aikastor/faulty-app/pull/1)
 
-### LangSmith tracing and token usage
+## LangSmith tracing and token usage
 
-The A1 + A2 checkout returned HTTP 409 at $28. The first patch passed the same checkout at $26 with HTTP 200. Five model responses used 9,800 input tokens and 518 output tokens, for a total of 10,318. Workspace members can inspect the timing and token counts in the [private LangSmith trace for the A1 + A2 checkout](https://smith.langchain.com/o/0784eb7b-f63d-41bc-8d8e-ccc029586b94/projects/p/cedc885d-b831-45ea-8152-4942cf96dbbc/r/49775a54-3e69-4c30-aea2-26849e623764?poll=true).
-
-To enable tracing, set these variables in the worker environment or in the private `.env` beside `targets.toml`. Environment settings take precedence. The worker reads them when it claims a job.
+To enable tracing, add these settings to the investigator's private `.env` or worker environment. Environment values take precedence. To leave tracing off, omit `LANGSMITH_TRACING` or set it to `false`.
 
 ```dotenv
 LANGSMITH_TRACING=true
@@ -100,34 +107,35 @@ LANGSMITH_PROJECT=bug-investigator
 LANGSMITH_API_KEY=your-private-langsmith-key
 ```
 
-Use `LANGSMITH_ENDPOINT` for a regional or self-hosted API and `LANGSMITH_WORKSPACE_ID` for a key scoped to multiple workspaces. To run locally, omit `LANGSMITH_TRACING` or set it to `false`. Usage accounting works in either mode.
+Click **Open LangSmith trace** in Streamlit to see the incident ID, executed steps, tool durations, and patch attempts. Expand a revised attempt to see which check failed under `revision_after`. Exported telemetry contains operational fields only. Prompts, source code, diffs, credentials, and review tokens stay out of the trace.
 
-Open **Open LangSmith trace** in Streamlit to see one execution of the selected incident. The incident ID is on the root. Each lease claim gets a fresh execution ID, so searching the project for the incident ID also finds reclaimed runs. Expand a patch attempt to see proposal and verification times. A revised attempt identifies the failed replay or suite test under `revision_after`. The exporter sends operation names, timestamps, outcomes, attempt numbers, test labels, model names and token counts. Automatic capture is disabled for the investigation graph and the human-review checkpoint.
+In the recorded A1 + A2 investigation, five model responses used **9,800 input + 518 output = 10,318 total tokens**. Workspace members can open the [private LangSmith trace](https://smith.langchain.com/o/0784eb7b-f63d-41bc-8d8e-ccc029586b94/projects/p/cedc885d-b831-45ea-8152-4942cf96dbbc/r/49775a54-3e69-4c30-aea2-26849e623764?poll=true).
 
-The JSON report at `/investigations/{incident_id}?format=json` includes the latest execution in `trace` and the individual Responses API calls in `usage.calls`. Each token field totals the provider's values across unique responses. A missing count makes that aggregate `null` and appears as **unknown** in Streamlit. Older investigations have `null` trace and usage. A failed investigation keeps the trace reference and any usage already received. Export failures appear as `unavailable` in the report and the worker continues to the usual review checkpoint when a candidate verifies.
+Token accounting also works with tracing off. The JSON report lists each response in `usage.calls`. A missing provider count appears as **unknown** in Streamlit and `null` in JSON. Failed investigations retain usage already received. If LangSmith is unavailable, the investigation continues.
 
-### Docker baseline
+## Developer reference
 
-For a diagnosed incident the model may select a test from the target’s configured cases. The runner accepts only those configured commands. The launcher builds the browser-test image when missing. After editing the browser tests, rebuild it with `docker compose --profile tests build browser-tests` from the app folder. The worker runs the selected case against a private copy of the watched container’s **current image**, using image defaults and a temporary internal Docker network. No replay container is watched or exposed on a host port.
+Run the investigator tests from the `bug-investigator` directory.
 
-The booking test records its own seat inputs, expected and actual total, and checkout response. A matching error and assertion failure produce **Bug reproduced** in the report. A passing test or an inconclusive run is recorded separately. The image IDs and observations are available in the JSON result. The controlled replay cannot identify the original customer's selection.
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+```
 
-### Automatic patch verification
+| What you need | Where to find it |
+| --- | --- |
+| Collector status and recent incidents | `GET /targets` and `GET /incidents` in the [local API explorer](http://127.0.0.1:8174/docs) |
+| Diagnosis, citations, and tool calls | [Local investigation reports](http://127.0.0.1:8174/investigations) |
+| Machine-readable report | `GET /investigations/{incident_id}?format=json` includes the baseline, verification attempts, review, publication, trace, and usage |
+| Watched containers, test commands, editable files, and GitHub target | [targets.toml](targets.toml) |
 
-A reproduced baseline on a target with `patch_sources` and a `suite_command` starts a GPT patch proposal. The prompt includes the diagnosis, inspected source lines, observation and failed assertion. Each candidate starts from a stopped copy of the baseline image ID. The worker checks the configured source files against their hashes in the diagnosis snapshot, applies the diff in a temporary directory and copies the changed files into that container. Docker commits its filesystem as a temporary local candidate image, preserving the baseline dependencies and runtime.
+<details>
+<summary>Configuration and worker behavior</summary>
 
-The selected test runs on the candidate with the baseline command, app URL and browser-runner image ID. A fresh app instance also runs the same full suite on each side. The target’s reporter emits one `TEST_RESULT` JSON record per test, a final `TEST_PLAN` count, and `BASELINE_RESULT` observations from the booking tests. Assertions count as behavioral failures. Browser startup errors, timeouts, source mismatches and incomplete suite results are inconclusive.
+- Set `INVESTIGATOR_API_PORT` and `INVESTIGATOR_UI_PORT` to change the launcher ports. For manual startup, set `INVESTIGATOR_API` on Streamlit and `INVESTIGATOR_REVIEW_UI` on the API to match your chosen addresses. Bind both services to loopback for this single-user demo.
+- Set `INVESTIGATOR_CONFIG` to choose a target file and `INVESTIGATOR_DB` to choose a SQLite database. For regional or self-hosted LangSmith, set `LANGSMITH_ENDPOINT`. For a multi-workspace key, set `LANGSMITH_WORKSPACE_ID`.
+- The watcher checks up to 250 retained log lines every two seconds. Keep exited containers until collection. Each incident is queued once. If a worker restarts or loses its lease, the graph can rerun under the same incident ID with a fresh execution ID. A reclaimed job may repeat a model request.
+- The agent can make up to seven source-tool calls and a final response. The worker fingerprints the source snapshot and checks it before patching. Candidate containers use the original image and a temporary internal Docker network.
+- The worker runs the selected test and full suite against the candidate. The JSON report stores the replay in `result.baseline`, the original suite in `result.verification.baseline_suite`, and each candidate in `result.verification.attempts`. After editing the browser tests, rebuild the runner with `docker compose --profile tests build browser-tests` from `faulty-app`.
+- A publication retry can recover an existing branch or PR for the approved diff. Local application checks file hashes to preserve unrelated edits. Its outcome appears in `result.local_patch`.
 
-Verification requires the selected test to pass in both candidate runs and every previously passing suite test to keep passing. After a behavioral failure, GPT receives the latest diff and failed assertions and can revise the patch against the original source. Each investigation allows an initial proposal and up to two revisions. Verification stops immediately on success or an inconclusive run. The worker removes temporary images, containers and networks after use.
-
-Open the investigation to compare observations, suite results and proposed diffs. The JSON representation includes the original replay in `result.baseline`, the suite in `result.verification.baseline_suite` and candidate runs in `result.verification.attempts`. Historical records retain their original fields.
-
-### Review and submit a fix
-
-In Streamlit, select a verified investigation and inspect its diff and browser suite. The review graph pauses at a LangGraph interrupt. Its SQLite checkpoint survives a refresh or server restart. **Reject patch** records the decision. **Approve and open pull request** queues a background job for the repository configured in `targets.toml`. For a personal demo, set that entry to your own fork and sign in with `gh auth login` using an account with push access.
-
-The publisher checks the GitHub base against the source fingerprint, applies the reviewed diff to a temporary clone, and opens a pull request with both checkout observations and the suite comparison. It uses a branch derived from the investigation and diff hash so retries can recover an existing branch or PR. A failed publication displays the error and a retry button. Merging is a separate GitHub action.
-
-Approval also applies the exact verified changes as unstaged edits in the configured local checkout. The worker checks each affected file against the tested before and after hashes and preserves unrelated edits. A conflict appears in the report and can be retried from Streamlit. Previously approved reports offer **Apply approved fix locally**. The running demo continues serving its existing image. New investigations read the deployed application source even after the checkout has been fixed.
-
-The JSON report exposes the local outcome in `result.local_patch` alongside the review decision and independent PR publication status. Run the API on loopback for this single-user demo.
+</details>

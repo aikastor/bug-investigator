@@ -2,7 +2,7 @@
 
 The FastAPI collector watches Docker containers listed in [targets.toml](targets.toml). It stores browser errors and unsuccessful exits in SQLite and maps stack frames to the configured source checkout. The included target is the sibling [seat-booking app](https://github.com/aikastor/faulty-app).
 
-[Watch the 93-second booking demo](docs/booking-demo.mp4). The baseline rejects A1 and A2 at $28 with HTTP 409. The candidate confirms the same seats at $26 with HTTP 200 and confirms A1 at $14. The full suite improves from three passes to four out of six. C4 and D2 retain their independent failures.
+[Watch the 1 minute 50 second booking demo](docs/booking-demo.mp4). The baseline rejects A1 and A2 at $28 with HTTP 409. The candidate confirms the same seats at $26 with HTTP 200 and confirms A1 at $14. The full suite improves from three passes to four out of six. C4 and D2 retain their independent failures. The human review in Streamlit opened [faulty-app PR #1](https://github.com/aikastor/faulty-app/pull/1) with the verified one-line fix.
 
 ## Run the demo
 

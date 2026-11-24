@@ -8,6 +8,16 @@ from streamlit.testing.v1 import AppTest
 
 
 class StreamlitReviewTests(unittest.TestCase):
+    def test_first_time_user_can_open_the_seat_map(self):
+        script = Path(__file__).resolve().parents[1] / "streamlit_app.py"
+        with patch("urllib.request.urlopen", return_value=io.BytesIO(b"[]")):
+            app = AppTest.from_file(str(script)).run()
+        self.assertFalse(app.exception)
+        link, = app.get("link_button")
+        self.assertEqual(link.proto.label, "Open seat-booking app")
+        self.assertEqual(link.proto.url, "http://127.0.0.1:4173")
+        self.assertIn("Reserve seats", app.info[0].value)
+
     def test_failed_investigation_displays_private_link_and_unknown_usage(self):
         script = Path(__file__).resolve().parents[1] / "streamlit_app.py"
         url = "https://smith.example/private-project/r/test"
@@ -23,7 +33,8 @@ class StreamlitReviewTests(unittest.TestCase):
         with patch("urllib.request.urlopen", side_effect=respond):
             app = AppTest.from_file(str(script)).run()
         self.assertFalse(app.exception)
-        self.assertEqual(app.get("link_button")[0].proto.url, url)
+        links = {link.proto.label: link.proto.url for link in app.get("link_button")}
+        self.assertEqual(links["Open LangSmith trace"], url)
         self.assertIn("Total unknown", app.caption[0].value)
         self.assertEqual(app.error[0].value, "Diagnosis failed")
 
@@ -56,4 +67,4 @@ class StreamlitReviewTests(unittest.TestCase):
                     app.run()
                     self.assertFalse(app.exception)
                     self.assertEqual(posts, [f"incident/review/review-token/{choice}"])
-                    self.assertEqual(len(app.button), 0)
+                    self.assertEqual([button.label for button in app.button], ["Refresh investigations"])

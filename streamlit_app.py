@@ -25,10 +25,13 @@ def api(path, *, method="GET"):
 
 
 st.title("Bug Investigator")
+with st.container(horizontal=True):
+    st.link_button("Open seat-booking app", "http://127.0.0.1:4173")
+    st.button("Refresh investigations")
 jobs = api("/investigations")
 if not jobs:
-    st.info("Waiting for the first Docker incident.")
-    st.button("Refresh investigations")
+    st.info("To trigger the demo error, select A1 and A2 in the seat-booking app and click Reserve seats. "
+            "Then return here and click Refresh investigations.")
     st.stop()
 
 by_id = {item["incident_id"]: item for item in jobs}

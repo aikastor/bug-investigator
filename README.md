@@ -53,7 +53,7 @@ For later launches, run just the Uvicorn and Streamlit commands while the demo c
 
 ### Try the demo
 
-Open the [seat map](http://127.0.0.1:4173), select A1 and A2, and try to reserve them. Follow the investigation in the [Streamlit review app](http://127.0.0.1:8514).
+In the [Streamlit review app](http://127.0.0.1:8514), click **Open seat-booking app**. On the [React seat map](http://127.0.0.1:4173), select **A1** and **A2**, then click **Reserve seats**. After the checkout error, return to Streamlit and click **Refresh investigations** to see the new incident.
 
 Open the [API explorer](http://127.0.0.1:8174/docs). `GET /targets` shows collector status and `GET /incidents` returns the latest 100 records. The watcher polls every two seconds and scans up to 250 retained log lines from the current run. Keep exited containers until collection. Set `INVESTIGATOR_CONFIG` and `INVESTIGATOR_DB` to override the default paths. Run checks with `.venv/bin/python -m unittest discover -s tests`.
 

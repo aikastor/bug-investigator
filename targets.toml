@@ -1,0 +1,19 @@
+[targets.lantern]
+container = "homework3-react"
+container_source_root = "/app"
+local_source_root = "../faulty-app"
+browser_source_root = "public"
+
+[targets.lantern.github]
+repo = "aikastor/faulty-app"
+base = "main"
+
+[targets.lantern.baseline]
+runner_image = "homework3-investigator-browser-tests"
+app_url = "http://app:3000"
+suite_command = ["node", "--test", "--test-reporter=./reporter.js", "seats.test.js"]
+patch_sources = ["public/app.js", "public/index.html", "public/style.css", "server.js"]
+
+[targets.lantern.baseline.cases.two_seat_fee]
+description = "Check the total and submit a reservation for A1 + A2 to reproduce a multi-seat price mismatch."
+command = ["node", "--test", "--test-reporter=./reporter.js", "--test-name-pattern=^two seats incur one booking fee and can be reserved$", "seats.test.js"]

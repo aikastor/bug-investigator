@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ incident.message }}{% endblock %}
+{% macro observation(run) %}
+{% if run and run.observation %}
+<dl>{% for field, value in run.observation.items() %}
+<dt>{{ field|replace('_', ' ')|capitalize }}</dt><dd>{{ value }}</dd>
+{% endfor %}</dl>
+{% endif %}
+{% endmacro %}
+{% block content %}
+<p><a href="/investigations">← All investigations</a></p>
+<h1>{{ incident.message }}</h1>
+<p class="meta">{{ status_labels.get(status, status) }} · {{ incident.target }} · {{ incident.occurred_at.strftime('%d %b %Y, %H:%M %Z') }}</p>
+{% if verification %}
+<section class="finding">
+<h2>Patch verification · {{ verification.outcome|capitalize }}</h2>
+{% if verification.detail %}<p>{{ verification.detail }}</p>{% endif %}
+{% for attempt in verification.attempts %}
+<h3>Candidate {{ loop.index }} · {{ attempt.outcome|capitalize }}</h3>
+{% if attempt.candidate %}
+<div class="comparison">
+<div><strong>Baseline · {{ baseline.outcome }}</strong>{{ observation(baseline) }}</div>
+<div><strong>Candidate · {{ attempt.candidate.outcome }}</strong>{{ observation(attempt.candidate) }}</div>
+</div>{% endif %}
+<details open><summary>Proposed diff</summary><pre>{{ attempt.diff }}</pre></details>
+{% if attempt.detail %}<pre>{{ attempt.detail }}</pre>{% endif %}
+{% if attempt.suite %}
+<table><caption>Full browser suite</caption>
+<thead><tr><th>Test</th><th>Baseline</th><th>Candidate</th></tr></thead>
+<tbody>{% for name, test in verification.baseline_suite.tests.items() %}
+<tr><th scope="row">{{ name }}</th><td>{{ test.outcome }}</td><td>{{ attempt.suite.get('tests', {}).get(name, {}).get('outcome', 'Unavailable') }}</td></tr>
+{% endfor %}</tbody></table>
+{% if attempt.new_failures is defined %}<p>New failures · {{ attempt.new_failures|join(', ') or 'None' }}</p>{% endif %}
+<details><summary>Suite observations</summary><h3>Baseline</h3><pre>{{ verification.baseline_suite.observations|tojson(indent=2) }}</pre>
+<h3>Candidate</h3><pre>{{ attempt.suite.get('observations', [])|tojson(indent=2) }}</pre></details>
+{% endif %}
+{% for warning in attempt.cleanup_warnings %}<p>Cleanup warning · {{ warning }}</p>{% endfor %}
+{% endfor %}
+{% if review %}
+<h3>Human review · {{ review.status|capitalize }}</h3>
+{% if review.status == "pending" %}
+<p><a href="{{ review_ui }}?investigation={{ incident.id|urlencode }}">Review this patch in Streamlit</a></p>
+{% else %}<p>Decision recorded {{ review.decided_at }}.</p>{% endif %}
+{% if publication %}
+{% if publication.url %}<p><a href="{{ publication.url }}">Open GitHub pull request</a></p>
+{% elif publication.status == "failed" %}<pre>{{ publication.error }}</pre>
+<a href="{{ review_ui }}?investigation={{ incident.id|urlencode }}">Retry publication in Streamlit</a>
+{% else %}<p>Pull request · {{ publication.status }} · <a href="">Refresh status</a></p>{% endif %}
+{% endif %}
+{% endif %}
+</section>{% endif %}
+{% if findings %}
+<section class="finding">
+{% for heading, paragraphs in findings %}<h2>{{ heading }}</h2>{% for p in paragraphs %}<p>{{ p }}</p>{% endfor %}{% endfor %}
+</section>
+{% elif error %}<h2>Investigation error</h2><p>{{ error }}</p>
+{% else %}<p>{{ "Waiting for the investigation worker." if status == "queued" else "The agent is investigating." }} <a href="">Refresh status</a></p>{% endif %}
+{% if baseline and (not verification or not verification.attempts or not verification.attempts[-1].candidate) %}
+<section><h2>Docker baseline</h2>
+<p><strong>{{ {"reproduced": "Bug reproduced", "passed": "Test passed", "inconclusive": "Inconclusive test"}.get(baseline.outcome) }}</strong></p>
+<p>{{ baseline.description }}</p>
+{{ observation(baseline) }}
+{% if baseline.detail %}<pre>{{ baseline.detail }}</pre>{% endif %}
+{% if baseline.cleanup_warning %}<p>Cleanup warning: {{ baseline.cleanup_warning }}</p>{% endif %}
+</section>{% endif %}
+{% if files %}
+<section><h2>Source evidence</h2>
+{% for path, lines in files.items() %}
+<details open><summary><code>{{ path }}</code></summary><div class="source">
+{% for number, text in lines %}<div{% if loop.previtem is defined and number > loop.previtem[0]+1 %} class="gap"{% endif %}><span class="num">{{ number }}</span><code>{{ text if text is not none else "Source text unavailable" }}</code></div>{% endfor %}
+</div></details>{% endfor %}</section>{% endif %}
+<h2>Investigation details</h2>
+<details><summary>Original stack trace</summary><pre>{{ incident.evidence }}</pre></details>
+<details><summary>Tool calls ({{ calls|length }})</summary><ol class="tools">{% for call in calls %}
+<li><details><summary>{{ call.tool }}{% if call.arguments is mapping %}{% if call.arguments.path %} · {{ call.arguments.path }}{% elif call.arguments.query %} · {{ call.arguments.query }}{% endif %}{% endif %}</summary>
+<h3>Arguments</h3><pre>{{ call.arguments|tojson(indent=2) }}</pre><h3>Output</h3><pre>{{ call.output|tojson(indent=2) }}</pre></details></li>
+{% endfor %}</ol></details>
+<footer><a href="?format=json">View raw JSON</a></footer>
+{% endblock %}

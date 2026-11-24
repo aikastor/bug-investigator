@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block content %}
+<h1>Investigations</h1>
+<ul class="list">{% for item in items %}<li><a href="/investigations/{{ item.id|urlencode }}">{{ item.message }}</a><p class="meta">{{ status_labels.get(item.status, item.status) }} · {{ item.target }} · {{ item.date }}</p></li>
+{% else %}<li>No investigations yet. New Docker incidents will appear here.</li>{% endfor %}</ul>
+{% endblock %}

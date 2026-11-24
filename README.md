@@ -6,32 +6,19 @@ The baseline rejects A1 and A2 at $28 with HTTP 409. The candidate confirms the 
 
 ## Run the demo
 
-Install Git, Docker Compose, and Python 3.14. PR publication also requires the GitHub CLI. Clone both repositories into the same directory so the configured source path resolves.
+Install Git, Python 3.14 and Docker with Compose. Start Docker, then run:
 
 ```sh
-git clone https://github.com/aikastor/faulty-app.git
 git clone https://github.com/aikastor/bug-investigator.git
-cd faulty-app
-docker compose up -d --build buggy-react
-docker compose --profile tests build browser-tests
-cd ../bug-investigator
+cd bug-investigator
+python3.14 demo.py
 ```
 
-From the investigator directory:
+If you already have the investigator checkout, run just `python3.14 demo.py` from its directory. The launcher prepares a local Python environment, clones the sibling `faulty-app` repository if needed, starts the seat-booking container and builds the browser-test image on first use. It reuses the existing demo container on subsequent launches.
 
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m uvicorn investigator.api:app --port 8174
-```
+For automatic diagnosis, put `OPENAI_API_KEY=your-key` in a private `.env` beside `targets.toml`, or export the key before launch. You can add the key to the file while the app is running. For private traces, see [LangSmith tracing and token usage](#langsmith-tracing-and-token-usage). Publishing an approved PR also requires the GitHub CLI.
 
-In a second terminal, start the operator UI from the investigator directory:
-
-```sh
-.venv/bin/python -m streamlit run streamlit_app.py --server.address 127.0.0.1 --server.port 8514
-```
-
-Open the [Streamlit review app](http://127.0.0.1:8514) to follow a job, compare the verified diff and tests, and decide whether to publish it. Set `INVESTIGATOR_API` on the Streamlit process or `INVESTIGATOR_REVIEW_UI` on the API process if you change the addresses.
+Open the [seat map](http://127.0.0.1:4173), select A1 and A2, and try to reserve them. Follow the investigation in the [Streamlit review app](http://127.0.0.1:8514). Ctrl+C stops the API and Streamlit. The Docker demo stays available for the next launch. To choose different local ports, set `INVESTIGATOR_API_PORT` and `INVESTIGATOR_UI_PORT` before starting the launcher.
 
 Open the [API explorer](http://127.0.0.1:8174/docs). `GET /targets` shows collector status and `GET /incidents` returns the latest 100 records. The watcher polls every two seconds and scans up to 250 retained log lines from the current run. Keep exited containers until collection. Set `INVESTIGATOR_CONFIG` and `INVESTIGATOR_DB` to override the default paths. Run checks with `.venv/bin/python -m unittest discover -s tests`.
 
@@ -39,7 +26,7 @@ Open the [API explorer](http://127.0.0.1:8174/docs). `GET /targets` shows collec
 
 Each **newly collected** Docker incident is saved and queued in one SQLite transaction. The incident ID is the unique job ID. Old records already in the database are retained as history. Run the app and the collector with the same source version.
 
-Put `OPENAI_API_KEY=your-key` in a private `.env` beside `targets.toml`, or export it before starting FastAPI. The worker checks the file on each poll. Jobs stay queued while no key is configured. Once a key is present, new incidents automatically send their trace and model-selected source excerpts to OpenAI using `gpt-6.1-sol`.
+The worker checks for an OpenAI key on each poll. Jobs stay queued while no key is configured. Once a key is present, new incidents automatically send their trace and model-selected source excerpts to OpenAI using `gpt-6.1-sol`.
 
 ```mermaid
 flowchart LR
@@ -86,7 +73,7 @@ The JSON report at `/investigations/{incident_id}?format=json` includes the late
 
 ### Docker baseline
 
-For a diagnosed incident the model may select a test from the target’s configured cases. The runner accepts only those configured commands. Build the browser test image with `docker compose --profile tests build browser-tests` from the app folder. The worker runs the selected case against a private copy of the watched container’s **current image**, using image defaults and a temporary internal Docker network. No replay container is watched or exposed on a host port.
+For a diagnosed incident the model may select a test from the target’s configured cases. The runner accepts only those configured commands. The launcher builds the browser-test image when missing. After editing the browser tests, rebuild it with `docker compose --profile tests build browser-tests` from the app folder. The worker runs the selected case against a private copy of the watched container’s **current image**, using image defaults and a temporary internal Docker network. No replay container is watched or exposed on a host port.
 
 The booking test records its own seat inputs, expected and actual total, and checkout response. A matching error and assertion failure produce **Bug reproduced** in the report. A passing test or an inconclusive run is recorded separately. The image IDs and observations are available in the JSON result. The controlled replay cannot identify the original customer's selection.
 

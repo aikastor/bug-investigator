@@ -6,7 +6,11 @@ The baseline rejects A1 and A2 at $28 with HTTP 409. The candidate confirms the 
 
 ## Run the demo
 
-Install Git, Python 3.14 and Docker with Compose. Start Docker, then run:
+Install Git, Python 3.14 and Docker with Compose, then start Docker.
+
+For automatic diagnosis, put `OPENAI_API_KEY=your-key` in a private `.env` beside `targets.toml`, or export the key before launch. You can add the key to the file while the app is running. For private traces, see [LangSmith tracing and token usage](#langsmith-tracing-and-token-usage). Publishing an approved PR also requires the GitHub CLI.
+
+### Quick start
 
 ```sh
 git clone https://github.com/aikastor/bug-investigator.git
@@ -16,9 +20,40 @@ python3.14 demo.py
 
 If you already have the investigator checkout, run just `python3.14 demo.py` from its directory. The launcher prepares a local Python environment, clones the sibling `faulty-app` repository if needed, starts the seat-booking container and builds the browser-test image on first use. It reuses the existing demo container on subsequent launches.
 
-For automatic diagnosis, put `OPENAI_API_KEY=your-key` in a private `.env` beside `targets.toml`, or export the key before launch. You can add the key to the file while the app is running. For private traces, see [LangSmith tracing and token usage](#langsmith-tracing-and-token-usage). Publishing an approved PR also requires the GitHub CLI.
+Press Ctrl+C in the launcher terminal to stop the API and Streamlit. To choose different local ports, set `INVESTIGATOR_API_PORT` and `INVESTIGATOR_UI_PORT` before starting the launcher.
 
-Open the [seat map](http://127.0.0.1:4173), select A1 and A2, and try to reserve them. Follow the investigation in the [Streamlit review app](http://127.0.0.1:8514). Ctrl+C stops the API and Streamlit. The Docker demo stays available for the next launch. To choose different local ports, set `INVESTIGATOR_API_PORT` and `INVESTIGATOR_UI_PORT` before starting the launcher.
+### Manual setup
+
+On a fresh checkout, clone the repositories side by side and prepare the demo and browser-test images. If the faulty demo container is already running, skip the `docker compose up` line to keep its deployed image.
+
+```sh
+git clone https://github.com/aikastor/faulty-app.git
+git clone https://github.com/aikastor/bug-investigator.git
+cd faulty-app
+docker compose up -d --build buggy-react
+docker compose --profile tests build browser-tests
+cd ../bug-investigator
+```
+
+In the first terminal, create the Python environment, install dependencies and start the API.
+
+```sh
+python3.14 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn investigator.api:app --host 127.0.0.1 --port 8174
+```
+
+In a second terminal, open the same `bug-investigator` directory and start Streamlit.
+
+```sh
+.venv/bin/python -m streamlit run streamlit_app.py --server.address 127.0.0.1 --server.port 8514
+```
+
+For later launches, run just the Uvicorn and Streamlit commands while the demo container is running. Press Ctrl+C in each terminal to stop its service. If you change the addresses, set `INVESTIGATOR_API` for Streamlit and `INVESTIGATOR_REVIEW_UI` for the API.
+
+### Try the demo
+
+Open the [seat map](http://127.0.0.1:4173), select A1 and A2, and try to reserve them. Follow the investigation in the [Streamlit review app](http://127.0.0.1:8514).
 
 Open the [API explorer](http://127.0.0.1:8174/docs). `GET /targets` shows collector status and `GET /incidents` returns the latest 100 records. The watcher polls every two seconds and scans up to 250 retained log lines from the current run. Keep exited containers until collection. Set `INVESTIGATOR_CONFIG` and `INVESTIGATOR_DB` to override the default paths. Run checks with `.venv/bin/python -m unittest discover -s tests`.
 

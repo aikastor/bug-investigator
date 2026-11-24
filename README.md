@@ -2,9 +2,9 @@
 
 Try booking two seats in the React demo and watch Bug Investigator diagnose the checkout error. It finds the relevant source lines, proposes a fix, and tests it in Docker. You review the diff in Streamlit before the app applies it locally or opens a pull request.
 
-> **[View the recorded A1 + A2 investigation in LangSmith][checkout-trace]**
+> **[View the public A1 + A2 investigation in LangSmith][checkout-trace]**
 >
-> This private trace follows a real checkout failure from source search to the first verified patch. Viewing it requires access to the `bug-investigator` project in LangSmith.
+> Anyone can open this trace without signing in. Follow the checkout failure from source search to the first verified patch.
 
 ## Run the demo
 
@@ -121,7 +121,7 @@ Click **Open LangSmith trace** in Streamlit to see the incident ID, executed ste
 
 Token accounting also works with tracing off. The JSON report lists each response in `usage.calls`. A missing provider count appears as **unknown** in Streamlit and `null` in JSON. Failed investigations retain usage already received. If LangSmith is unavailable, the investigation continues.
 
-[checkout-trace]: https://smith.langchain.com/o/0784eb7b-f63d-41bc-8d8e-ccc029586b94/projects/p/cedc885d-b831-45ea-8152-4942cf96dbbc/r/49775a54-3e69-4c30-aea2-26849e623764?poll=true
+[checkout-trace]: https://smith.langchain.com/public/4e1dd2fd-42d8-46b4-bb3d-6dc1262389b5/r
 
 ## Developer reference
 

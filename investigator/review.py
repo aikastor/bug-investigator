@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
+from langsmith import tracing_context
 from langgraph.types import Command, interrupt
 
 
@@ -32,6 +33,7 @@ def build_graph(connection):
     return graph.compile(checkpointer=SqliteSaver(connection))
 
 
+@tracing_context(enabled=False, parent=False)
 def advance(db, graph, incident_id, decision=None, token=None, *, publishable=False):
     # Serialize competing decisions across processes. Checkpoints use a second
     # database so that a completed resume can be reconciled after a process crash.

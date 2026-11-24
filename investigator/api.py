@@ -121,7 +121,16 @@ async def investigation(incident_id: str, request: Request, response: Response):
                               review=result.get("review") if result else None, publication=publication_info,
                               local_patch=result.get("local_patch") if result else None,
                               review_ui=os.getenv("INVESTIGATOR_REVIEW_UI", "http://127.0.0.1:8514"))
+    execution = app.state.db.execute("""SELECT execution_id, trace_status, trace_url, usage
+        FROM investigation_executions WHERE incident_id=? ORDER BY rowid DESC LIMIT 1""", (incident_id,)).fetchone()
+    trace = None
+    usage = None
+    if execution:
+        execution_id, trace_status, url, counts = execution
+        trace = {"execution_id": execution_id, "status": trace_status, "url": url}
+        usage = json.loads(counts) if counts else None
     return {"incident_id": incident_id, "status": status, "source_fingerprint": fingerprint,
+            "trace": trace, "usage": usage,
             "tool_calls": calls, "result": result,
             "github_target": github.model_dump() if github else None, "publication": publication_info, "error": error}
 

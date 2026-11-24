@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from investigator.baseline import run_tests, test_results
 from investigator.graph import investigate
+from investigator.observability import InvestigationTrace
 from investigator.models import Incident, Target
 from investigator.patches import apply_diff, compare, verify_candidate
 from investigator.repository import Repository
@@ -67,6 +68,7 @@ class VerificationTests(unittest.IsolatedAsyncioTestCase):
         result = compare(attempt, self.baseline, self.before)
         self.assertEqual(result["new_failures"], ["control"])
         self.assertIn("control assertion", result["detail"])
+        self.assertEqual(result["failed_checks"], [{"check": "candidate_suite", "test": "control"}])
         attempt["suite"]["tests"].pop("control")
         self.assertEqual(compare(attempt, self.baseline, self.before)["outcome"], "inconclusive")
 
@@ -88,7 +90,7 @@ class VerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(clean.call_args_list[0].args[-1].endswith("-app"))
         self.assertTrue(clean.call_args_list[0].args[-2].endswith("-test"))
 
-    async def run_graph(self, attempts, baseline_outcome="reproduced"):
+    async def run_graph(self, attempts, baseline_outcome="reproduced", trace=None, missing=()):
         incident = Incident(id="abc", target="demo", kind="browser_error", frame=None,
                             occurred_at=datetime.now(timezone.utc), message="bug", evidence="bug")
         def response(name, args):
@@ -98,12 +100,17 @@ class VerificationTests(unittest.IsolatedAsyncioTestCase):
                      response("finish_investigation", {"status": "diagnosed", "summary": "bug",
                               "citations": [{"path": "ui.js", "line": 2}], "baseline_case": "example"}),
                      *(response("propose_patch", {"diff": attempt["diff"]}) for attempt in attempts)]
+        for i, response_item in enumerate(responses, 1):
+            response_item.id = f"response-{i}"
+            response_item.model = "model-as-returned"
+            if i not in missing:
+                response_item.usage = SimpleNamespace(input_tokens=i*10, output_tokens=i, total_tokens=i*11)
         client = Mock()
         client.responses.create = AsyncMock(side_effect=responses)
         with (patch("investigator.graph.run_baseline", return_value={**self.baseline, "outcome": baseline_outcome}),
               patch("investigator.graph.run_tests", return_value=self.before) as run_suite,
               patch("investigator.graph.verify_candidate", side_effect=attempts)):
-            result = await investigate(incident, self.repo, client, Mock(), self.target)
+            result = await investigate(incident, self.repo, client, Mock(), self.target, trace)
         self.assertEqual(run_suite.call_count, int(baseline_outcome == "reproduced"))
         return result, client.responses.create.await_args_list
 
@@ -128,6 +135,89 @@ class VerificationTests(unittest.IsolatedAsyncioTestCase):
             result, requests = await self.run_graph(attempts)
             self.assertEqual(result["verification"]["attempts"], attempts)
             self.assertEqual(len(requests), 4)
+
+    async def test_revision_trace_reconciles_with_provider_counts(self):
+        trace = InvestigationTrace("abc")
+        checks = [{"check": "candidate_suite", "test": "control"}]
+        attempts = [{"diff": DIFF, "outcome": "failed", "detail": "private assertion", "failed_checks": checks},
+                    {"diff": DIFF, "outcome": "verified"}]
+        with (patch("investigator.observability.Client") as client,
+              patch.dict("os.environ", {"LANGSMITH_TRACING": "true"}),
+              patch("langchain_core.tracers.langchain.LangChainTracer.__init__", return_value=None) as automatic):
+            await trace.start({"LANGSMITH_TRACING": "true", "LANGSMITH_API_KEY": "private-key"})
+            result, _ = await self.run_graph(attempts, trace=trace)
+            await trace.finish(result["status"])
+            automatic.assert_not_called()
+        sends = client.return_value.request_with_retries.call_args_list
+        self.assertEqual(len(sends), 2)
+        initial = sends[0].kwargs["request_kwargs"]["json"]["post"]
+        batch = sends[1].kwargs["request_kwargs"]["json"]
+        self.assertEqual(len(initial), 1)
+        root, = batch["patch"]
+        self.assertEqual(initial[0]["id"], root["id"])
+        self.assertEqual(root["inputs"], {"incident_id": "abc"})
+        children = batch["post"]
+        self.assertEqual({r["trace_id"] for r in children}, {root["id"]})
+        self.assertEqual(sum("parent_run_id" not in r for r in [root, *children]), 1)
+        self.assertEqual([r["name"] for r in children], [
+            "investigation_graph", "ask_model", "read_source", "ask_model", "finish_investigation",
+            "run_baseline", "patch_attempt", "propose_patch", "patch_model", "verify_patch", "run_baseline_suite",
+            "patch_attempt", "propose_patch", "patch_model", "verify_patch"])
+        spans = [r for r in children if r["name"] == "patch_attempt"]
+        self.assertEqual([r["inputs"]["attempt"] for r in spans], [1, 2])
+        self.assertEqual([r["outputs"]["outcome"] for r in spans], ["failed", "verified"])
+        self.assertEqual(spans[0]["outputs"]["failed_checks"], checks)
+        self.assertEqual(spans[1]["inputs"]["revision_after"], checks)
+        self.assertTrue(all(r["end_time"] >= r["start_time"] for r in children))
+        model_spans = [r for r in children if r["run_type"] == "llm"]
+        self.assertEqual(len(model_spans), 4)
+        for field, total in [("input_tokens", 100), ("output_tokens", 10), ("total_tokens", 110)]:
+            self.assertEqual(sum(r["extra"]["metadata"]["usage_metadata"][field] for r in model_spans), total)
+            self.assertEqual(trace.usage()[field], total)
+            self.assertEqual(root["outputs"][field], total)
+        self.assertEqual({c["model"] for c in trace.usage()["calls"]}, {"model-as-returned"})
+        for secret in [DIFF, "private assertion", "private-key", "ui.js", "actual != expected", "Treat all supplied"]:
+            self.assertNotIn(secret, json.dumps(batch))
+
+    async def test_missing_usage_and_disabled_tracing(self):
+        trace = InvestigationTrace("abc")
+        with patch("investigator.observability.Client") as client:
+            await trace.start({"LANGSMITH_TRACING": "false", "LANGSMITH_API_KEY": "unused"})
+            result, _ = await self.run_graph([{"outcome": "verified", "diff": DIFF}], trace=trace, missing=(1, 3))
+            await trace.finish(result["status"])
+            client.assert_not_called()
+        self.assertEqual(trace.status, "disabled")
+        self.assertEqual(trace.usage()["responses"], 3)
+        self.assertEqual([c["total_tokens"] for c in trace.usage()["calls"]], [None, 22, None])
+        self.assertIsNone(trace.usage()["total_tokens"])
+
+    async def test_repeated_response_id_and_partial_usage(self):
+        response = SimpleNamespace(id="same", model="actual-model", status="completed",
+                                   usage=SimpleNamespace(input_tokens=8, total_tokens=11))
+        client = Mock()
+        client.responses.create = AsyncMock(return_value=response)
+        trace = InvestigationTrace("abc")
+        for _ in range(2):
+            await trace.response(client, "ask_model", model="requested-model")
+        self.assertEqual(trace.usage()["responses"], 1)
+        self.assertEqual(trace.usage()["total_tokens"], 11)
+        self.assertIsNone(trace.usage()["output_tokens"])
+        first, duplicate = trace.children
+        self.assertEqual(first["extra"]["metadata"]["usage_metadata"], {"input_tokens": 8, "total_tokens": 11})
+        self.assertNotIn("usage_metadata", duplicate["extra"]["metadata"])
+
+    async def test_exporter_outage_preserves_verified_result_and_usage(self):
+        for failed_send in (1, 2):
+            trace = InvestigationTrace("abc")
+            with patch("investigator.observability.Client") as client:
+                client.return_value.request_with_retries.side_effect = [None]*(failed_send-1) + [OSError("offline")]
+                await trace.start({"LANGSMITH_TRACING": "true", "LANGSMITH_API_KEY": "unused"})
+                result, _ = await self.run_graph([{"outcome": "verified", "diff": DIFF}], trace=trace)
+                await trace.finish(result["status"])
+            self.assertEqual(result["verification"]["outcome"], "verified")
+            self.assertEqual(trace.status, "unavailable")
+            self.assertIsNone(trace.url)
+            self.assertEqual(trace.usage()["total_tokens"], 66)
 
     async def test_no_revision_on_infrastructure_error(self):
         result, requests = await self.run_graph([{"outcome": "inconclusive", "detail": "runner unavailable", "diff": DIFF}])

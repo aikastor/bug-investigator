@@ -66,6 +66,24 @@ The worker claims one job at a time. Shutdown requeues active work. An expired l
 
 The source tools read a local in-memory snapshot of common code file types. They skip dependencies, hidden paths, symlinks and large files. The fingerprint identifies the snapshot used for a run. The configured GitHub repository supplies the publication base after approval.
 
+### LangSmith tracing and token usage
+
+The A1 + A2 checkout returned HTTP 409 at $28. The first patch passed the same checkout at $26 with HTTP 200. Five model responses used 9,800 input tokens and 518 output tokens, for a total of 10,318. Workspace members can inspect the timing and token counts in the [private LangSmith trace for the A1 + A2 checkout](https://smith.langchain.com/o/0784eb7b-f63d-41bc-8d8e-ccc029586b94/projects/p/cedc885d-b831-45ea-8152-4942cf96dbbc/r/49775a54-3e69-4c30-aea2-26849e623764?poll=true).
+
+To enable tracing, set these variables in the worker environment or in the private `.env` beside `targets.toml`. Environment settings take precedence. The worker reads them when it claims a job.
+
+```dotenv
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=bug-investigator
+LANGSMITH_API_KEY=your-private-langsmith-key
+```
+
+Use `LANGSMITH_ENDPOINT` for a regional or self-hosted API and `LANGSMITH_WORKSPACE_ID` for a key scoped to multiple workspaces. To run locally, omit `LANGSMITH_TRACING` or set it to `false`. Usage accounting works in either mode.
+
+Open **Open LangSmith trace** in Streamlit to see one execution of the selected incident. The incident ID is on the root. Each lease claim gets a fresh execution ID, so searching the project for the incident ID also finds reclaimed runs. Expand a patch attempt to see proposal and verification times. A revised attempt identifies the failed replay or suite test under `revision_after`. The exporter sends operation names, timestamps, outcomes, attempt numbers, test labels, model names and token counts. Automatic capture is disabled for the investigation graph and the human-review checkpoint.
+
+The JSON report at `/investigations/{incident_id}?format=json` includes the latest execution in `trace` and the individual Responses API calls in `usage.calls`. Each token field totals the provider's values across unique responses. A missing count makes that aggregate `null` and appears as **unknown** in Streamlit. Older investigations have `null` trace and usage. A failed investigation keeps the trace reference and any usage already received. Export failures appear as `unavailable` in the report and the worker continues to the usual review checkpoint when a candidate verifies.
+
 ### Docker baseline
 
 For a diagnosed incident the model may select a test from the target’s configured cases. The runner accepts only those configured commands. Build the browser test image with `docker compose --profile tests build browser-tests` from the app folder. The worker runs the selected case against a private copy of the watched container’s **current image**, using image defaults and a temporary internal Docker network. No replay container is watched or exposed on a host port.
@@ -81,7 +99,6 @@ The selected test runs on the candidate with the baseline command, app URL and b
 Verification requires the selected test to pass in both candidate runs and every previously passing suite test to keep passing. After a behavioral failure, GPT receives the latest diff and failed assertions and can revise the patch against the original source. Each investigation allows an initial proposal and up to two revisions. Verification stops immediately on success or an inconclusive run. The worker removes temporary images, containers and networks after use.
 
 Open the investigation to compare observations, suite results and proposed diffs. The JSON representation includes the original replay in `result.baseline`, the suite in `result.verification.baseline_suite` and candidate runs in `result.verification.attempts`. Historical records retain their original fields.
-
 
 ### Review and submit a fix
 

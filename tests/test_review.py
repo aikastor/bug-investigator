@@ -2,6 +2,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from investigator import jobs, review
@@ -39,6 +40,14 @@ class HumanReviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             decide("rejected")
         self.assertEqual(self.db.execute("SELECT status FROM publications").fetchall(), [("queued",)])
+
+    def test_review_checkpoint_does_not_auto_export_the_review_token(self):
+        with (patch.dict("os.environ", {"LANGSMITH_TRACING": "true"}),
+              patch("langchain_core.tracers.langchain.LangChainTracer.__init__", return_value=None) as tracer):
+            graph = self.graph()
+            pending = review.advance(self.db, graph, "id")
+            review.advance(self.db, graph, "id", "rejected", pending["token"])
+            tracer.assert_not_called()
 
     def test_rejection_blocks_publication(self):
         graph = self.graph()

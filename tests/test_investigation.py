@@ -8,9 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx2
+from fastapi import Request, Response
 from openai import AsyncOpenAI
 
-from investigator import jobs
+from investigator import api, jobs
 from investigator.models import DockerBaseline, Incident, Target
 from investigator.repository import Repository
 
@@ -40,6 +41,56 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
         self.db.execute("UPDATE investigations SET lease_until=0")
         self.assertEqual(jobs.claim(self.db, "second"), "abc")
         self.assertIsNone(jobs.claim(self.db, "third"))
+        self.assertEqual(self.db.execute("SELECT execution_id, incident_id FROM investigation_executions ORDER BY rowid")
+                         .fetchall(), [("first", "abc"), ("second", "abc")])
+
+    async def json_report(self):
+        request = Request({"type": "http", "headers": [], "query_string": b"format=json"})
+        with (patch.object(api.app.state, "db", self.db, create=True),
+              patch.object(api.app.state, "configured_targets", {"demo": self.target}, create=True)):
+            return await api.investigation("abc", request, Response())
+
+    async def test_historical_report_without_execution_still_opens(self):
+        jobs.save_incidents(self.db, [self.incident])
+        original = {"summary": "Earlier diagnosis", "citations": []}
+        with self.db:
+            self.db.execute("UPDATE investigations SET status='diagnosed', result=?", (json.dumps(original),))
+        jobs.create_tables(self.db)
+        report = await self.json_report()
+        self.assertEqual(report["result"], original)
+        self.assertIsNone(report["usage"])
+        self.assertIsNone(report["trace"])
+
+    async def test_failure_before_diagnosis_keeps_trace_and_received_usage(self):
+        jobs.save_incidents(self.db, [self.incident])
+        def respond(request):
+            return httpx2.Response(200, json={
+                "id": "resp_failed", "object": "response", "created_at": 1, "model": "returned-model",
+                "status": "incomplete", "output": [], "usage": {"input_tokens": 17,
+                "output_tokens": 3, "total_tokens": 20}})
+
+        client = AsyncOpenAI(api_key="test", http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(respond)))
+        (self.root / ".env").write_text("OPENAI_API_KEY=test\nLANGSMITH_TRACING=true\nLANGSMITH_API_KEY=test")
+        with (patch.dict("os.environ", {}, clear=True), patch.object(jobs, "AsyncOpenAI", return_value=client),
+              patch("investigator.observability.Client") as exporter, self.assertLogs("investigator.jobs", "ERROR")):
+            exporter.return_value.read_project.return_value.url = "https://smith.example/private-project"
+            worker = asyncio.create_task(jobs.work(self.db, {"demo": self.target}, self.root / ".env"))
+            try:
+                async with asyncio.timeout(8):
+                    while (await self.json_report())["status"] != "failed":
+                        await asyncio.sleep(0.01)
+                report = await self.json_report()
+            finally:
+                worker.cancel()
+                await asyncio.gather(worker, return_exceptions=True)
+        root, = exporter.return_value.request_with_retries.call_args.kwargs["request_kwargs"]["json"]["patch"]
+        self.assertIsNone(report["result"])
+        self.assertEqual(root["outputs"]["outcome"], "failed")
+        self.assertEqual(root["extra"]["metadata"]["incident_id"], report["incident_id"])
+        self.assertEqual(report["trace"]["execution_id"], root["id"])
+        self.assertIn(root["id"], report["trace"]["url"])
+        self.assertEqual(report["usage"]["total_tokens"], 20)
+        self.assertEqual(root["outputs"]["total_tokens"], 20)
 
     def test_repository_is_scoped_and_stable(self):
         repo = Repository.load(self.root)
@@ -80,7 +131,7 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
 
         client = AsyncOpenAI(api_key="test", http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(respond)))
         baseline = {"scenario": "fees", "outcome": "reproduced"}
-        with (patch.dict("os.environ", {"OPENAI_API_KEY": "test"}),
+        with (patch.dict("os.environ", {"OPENAI_API_KEY": "test", "LANGSMITH_TRACING": "false"}),
               patch.object(jobs, "AsyncOpenAI", return_value=client),
               patch("investigator.graph.run_baseline", return_value=baseline) as replay):
             worker = asyncio.create_task(jobs.work(self.db, {"demo": self.target}, self.root / ".env"))

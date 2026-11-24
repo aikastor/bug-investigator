@@ -62,13 +62,16 @@ def compare(attempt, baseline, before):
         return {"outcome": "inconclusive", "detail": "Selected test inputs differ between runs."}
     regressions = sorted(k for k in old if old[k]["outcome"] == "passed" and new[k]["outcome"] == "failed")
     assertions = []
+    failed_checks = []
     if selected["outcome"] == "failed":
+        failed_checks.append({"check": "selected_replay", "test": name})
         assertions.append(selected["detail"])
     for k in [name, *regressions]:
         if new[k]["outcome"] == "failed":
+            failed_checks.append({"check": "candidate_suite", "test": k})
             assertions.append(k + "\n" + new[k]["detail"])
     return {"outcome": "failed" if assertions else "verified", "new_failures": regressions,
-            "detail": "\n\n".join(assertions)}
+            "detail": "\n\n".join(assertions), "failed_checks": failed_checks}
 
 
 def verify_candidate(target, repo, diff, baseline, before):

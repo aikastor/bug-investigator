@@ -43,6 +43,16 @@ path = "/investigations/" + quote(key, safe="")
 def report():
     data = api(path)
     result = data.get("result") or {}
+    trace = data.get("trace") or {}
+    if trace.get("url"):
+        st.link_button("Open LangSmith trace", trace["url"])
+    elif trace.get("status") == "unavailable":
+        st.caption(f"LangSmith export unavailable · execution {trace['execution_id']}")
+    usage = data.get("usage")
+    if usage:
+        counts = [f"{label} {usage[field] if usage[field] is not None else 'unknown'}"
+                  for label, field in [("Input", "input_tokens"), ("Output", "output_tokens"), ("Total", "total_tokens")]]
+        st.caption("Tokens · " + " · ".join(counts) + f" · {usage['responses']} model responses")
     if not result:
         st.subheader(data["status"].capitalize())
         calls = data.get("tool_calls", [])
